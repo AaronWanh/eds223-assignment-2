@@ -1,0 +1,190 @@
+## Part 1: Legacy of redlining in current environmental (in)justice
+```{r}
+library(tmap)
+library(tidyverse)
+library(sf)
+
+```
+
+
+```{r}
+holc <- st_read("data/mapping-inequality-los-angeles.json")
+crash <- st_read("data/Crashes.csv")
+
+ejscreen <- sf::st_read(here::here("data","EJSCREEN_2023_BG_StatePct_with_AS_CNMI_GU_VI.gdb")) 
+
+# filter to a state you are interested in
+california <- ejscreen %>%
+  dplyr::filter(ST_ABBREV == "CA") 
+
+# filter to a county you are interested in
+los_angeles <- ejscreen %>%
+  dplyr::filter(CNTY_NAME %in% c("Los Angeles County"))
+
+```
+
+### Dataset Testing/Exploration Pane
+```{r}
+# unique(crash)
+
+st_crs(holc)
+st_crs(crash)
+st_crs(ejscreen)
+
+head(crash)
+head(ejscreen)
+head(los_angeles)
+
+```
+
+```{r}
+ejscreen <- st_transform(ejscreen, crs = st_crs(holc))
+
+los_angeles <- st_transform(los_angeles, crs = st_crs(holc))
+```
+
+```{r}
+st_crs(holc) == st_crs(ejscreen)
+st_crs(holc) == st_crs(los_angeles)
+```
+
+### 1. 
+Create a map of historical redlining neighborhoods, including:
+* neighborhoods colored by HOLC grade
+* an appropriate base map
+* a clear title and legend
+
+```{r}
+la_boundary <- st_union(los_angeles)
+tm_shape(holc) +
+    tm_polygons("grade",
+                fill.scale = tm_scale_categorical(values = c(
+                    "green",
+                    "blue",
+                    "yellow",
+                    "red"
+                )),
+                fill.legend = tm_legend(title = " HOLC Grade")
+
+    ) +
+        
+tm_shape(la_boundary) +
+    tm_borders() +
+tm_title(text = "Redlining in Los Angeles County")
+    
+```
+### 2. Create a table summarizing:
+* the percentage of census block groups that fall within each HOLC grade
+* Also include the percent of census black groups that don’t fall within a HOLC grade in your table
+* Hint: The HOLC data contains the grades and the EJScreen data contains the census blocks, so you will need to combine the data spatially before doing summary statistics. Once you combine and no longer need the geometries, you can use st_drop_geometry().
+
+```{r}
+la_holc <- st_join(st_transform(los_angeles, 3310),
+                   st_transform(holc, 3310))
+
+holc_table <- la_holc |> 
+  st_drop_geometry() |> 
+  group_by(grade) |> 
+  summarize(n = n()) |> 
+  mutate(percentage_census = n / sum(n) * 100)
+
+```
+
+### 3. Create at least two visualizations summarizing current conditions (from the EJScreen data) within HOLC grades using the mean of the following variables (you may combine variables in a single visualization or look at a single variable per plot):
+* % low income
+* percentile for Particulate Matter 2.5
+* percentile for low life expectancy
+* Use ggplot for your visualizations! You will first need to calculate mean of each variable grouped by HOLC grade.
+
+```{r}
+summarize_variables <- la_holc |> 
+  st_drop_geometry() |> 
+  group_by(grade) |> 
+  summarize(low_income_mean = mean(LOWINCPCT, na.rm = TRUE),
+            pm25_mean = mean(P_PM25, na.rm = TRUE),
+            life_expectancy_mean = mean(P_LIFEEXPPCT, na.rm = TRUE)
+  )
+
+p1 <- ggplot(summarize_variables, aes(x = grade, y = low_income_mean, fill = grade)) + 
+  geom_col() +
+  labs(title = "% low income")
+
+p2 <- ggplot(summarize_variables, aes(x = grade, y = pm25_mean, fill = grade)) +
+  geom_col() +
+  labs(title = "Particulate matter 2.5")
+
+p3 <- ggplot(summarize_variables, aes(x = grade, y = life_expectancy_mean, fill = grade)) +
+  geom_col() +
+  labs(title = "Low life expectancy")
+
+p1
+p2
+p3
+```
+
+### 4. Write a brief paragraph reflecting on these results
+* Interpret the patterns you observe in your results
+* Discuss potential relationships between historical redlining grades and current environmental/socioeconomic conditions
+
+LA county is heavily urbanized resulting in less greenery and hotter neighborhoods which leads to higher redlining grades. This is apparent in our dataset with more than half of our census block occupying grade C and D. Grade D consistently had the highest mean values among all the other grades. The graphs followed a descending order from grade D to A. These high mean of percentage of low income, low life expectancy, and particulate matter supports the validity of the claim that census tracts graded “D” experienced 2.6 times the rate of pedestrian deaths compared to “A”-graded areas. 
+
+
+## Part 2: Legacy of redlining in pedstrian and bike accidents
+
+### 1. A figure summarizing the percent of observations within redlined neighborhoods within each HOLC grade. Create a visualizations that shows:
+
+* The percentage of bike and pedestrian crashes and fatalities within each HOLC grade
+* Include an appropiate title, axis labels, and legend
+* Hints: Make sure to filter for bike and pedestrian crahes(PEDESTRIAN_ACCIDENT and BICYCLE_ACCIDENT). Look at the difference in NAs between POINT_X/POINT_Y and LONGITUDE/LATITUDE before you decide which to use. Ensure the SWITRS data and HOLC dataset have matching CRS’, then perform a spatial join to assign each crash to a corresponding HOLC grade.
+
+```{r}
+crash <- crash |> 
+  mutate(
+    LONGITUDE = na_if(str_trim(LONGITUDE), ""),
+    LATITUDE = na_if(str_trim(LATITUDE), "")
+  ) |> 
+  drop_na(LONGITUDE, LATITUDE) |> 
+  st_as_sf(
+          coords = c('LONGITUDE', 'LATITUDE'),
+          crs = st_crs(holc)
+)
+
+```
+
+```{r}
+crash <- st_transform(crash, 3310)
+holc <- st_transform(holc, 3310)
+
+st_crs(holc) == st_crs(crash)
+```
+
+```{r}
+accidents <- st_join(holc, crash[c('PEDESTRIAN_ACCIDENT', 'BICYCLE_ACCIDENT')])
+
+accidents <- accidents |> 
+  mutate(
+    PEDESTRIAN_ACCIDENT = na_if(str_trim(PEDESTRIAN_ACCIDENT), ""),
+    BICYCLE_ACCIDENT = na_if(str_trim(BICYCLE_ACCIDENT), "")
+  ) |> 
+  group_by(grade) |> 
+  summarize(pa = sum(!is.na(PEDESTRIAN_ACCIDENT)),
+            ba = sum(!is.na(BICYCLE_ACCIDENT))
+  ) |> 
+  mutate(percentage_bike_accident = ba / sum(ba) * 100, 
+         percentage_pedestrian_accident = pa / sum(pa) * 100
+  )
+
+```
+
+```{r}
+ggplot(accidents, aes(x = grade)) +
+  geom_col(aes(y = percentage_bike_accident, fill = "Bicycle"),
+       width = 0.4, position = position_nudge(x = -0.2)) +
+  geom_col(aes(y = percentage_pedestrian_accident, fill = "Pedestrian"),
+       width = 0.4, position = position_nudge(x = 0.2)) +
+  labs(
+    x = "HOLC grade", 
+    y = "% of accidents", 
+    fill = "Accident type") +
+  theme_minimal()
+```
