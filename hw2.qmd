@@ -8,6 +8,7 @@ format:
     
 execute:
   message: false
+  warning: false
 ---
 
 
@@ -18,6 +19,7 @@ execute:
 library(tmap)
 library(tidyverse)
 library(sf)
+library(gt)
 
 # Home Owners’ Loan Corporation redlining dataset
 holc <- st_read("data/mapping-inequality-los-angeles.json")
@@ -34,19 +36,9 @@ california <- ejscreen %>%
 # filter to a county you are interested in
 los_angeles <- ejscreen %>%
   dplyr::filter(CNTY_NAME %in% c("Los Angeles County"))
-
 ```
 
-### Dataset Testing/Exploration Pane
-```{r}
-# observe the coordinate reference system for each dataset
-st_crs(holc)
-st_crs(los_angeles)
 
-# check the first couple rows for each column 
-head(crash)
-
-```
 
 ### Transforming coordinate reference system to match 
 ```{r}
@@ -94,7 +86,7 @@ tm_shape(la_boundary) +
 tm_title(text = "Redlining in Los Angeles County") +
 tm_compass(position = c('top', 'right')) +
 tm_scalebar(position = c('bottom', 'right'), size = 1) +
-tm_basemap(server = "Esri.WorldGrayCanvas") 
+tm_basemap('OpenStreetMap') 
 
     
 ```
@@ -115,6 +107,10 @@ holc_table <- la_holc |>
   group_by(grade) |> 
   summarize(n = n()) |> 
   mutate(percentage_census = n / sum(n) * 100)
+
+holc_table |> 
+  gt() |> 
+    tab_header(title = md("Percentage of Census Block Groups Per HOLC Grade"))
 
 ```
 
@@ -271,7 +267,7 @@ ggplot(accidents, aes(x = grade)) +
     x = "HOLC grade", 
     y = "% of accidents",
     fill = "HOLC grade",
-    title = "Bike and Pedestrian Accidents within each HOLC Grade")
+    title = "LA Percentage Bike and Pedestrian Accidents within each HOLC Grade")
 ```
 
 ## Data Citation
